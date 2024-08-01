@@ -10,6 +10,9 @@ import java.time.LocalDate;
 import java.util.Date;
 
 @Entity
+@Table(uniqueConstraints = {
+        @UniqueConstraint(columnNames = "email", name = "UK_email")
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -20,7 +23,6 @@ public class User {
     private int id;
     private String firstName;
     private String lastName;
-    @Column(nullable = false, unique = true)
     private String email;
     private int gender;
     private LocalDate dob;
