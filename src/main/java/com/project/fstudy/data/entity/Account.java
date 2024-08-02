@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.util.*;
 
@@ -32,6 +33,7 @@ public class Account implements UserDetails {
     )
     private Set<Authority> authorities = new HashSet<>();
     private boolean isLocked;
+    private Timestamp credentialExpireTime;
     private boolean isEnabled;
     @OneToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @JoinColumn(referencedColumnName = "id")
@@ -55,7 +57,7 @@ public class Account implements UserDetails {
 
     @Override
     public boolean isCredentialsNonExpired() {
-        return true;
+        return credentialExpireTime.after(new Timestamp(System.currentTimeMillis()));
     }
 
     @Override
