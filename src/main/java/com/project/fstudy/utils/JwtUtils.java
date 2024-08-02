@@ -1,5 +1,6 @@
 package com.project.fstudy.utils;
 
+import com.project.fstudy.data.constant.TimeConstant;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
@@ -13,7 +14,6 @@ import java.util.Map;
 import java.util.function.Function;
 @Component
 public class JwtUtils {
-    private final long EXPIRE_TIME = 15*60*1000;
     @Value("${jwt.secret-key}")
     private String SECRET_KEY;
     public String extractUsername(String token) {
@@ -52,7 +52,7 @@ public class JwtUtils {
 
     private String createToken(Map<String, Object> claims, String username) {
         return Jwts.builder().claims(claims).subject(username).issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + EXPIRE_TIME))
+                .expiration(new Date(System.currentTimeMillis() + TimeConstant.MINUTE * 15))
                 .signWith(SignatureAlgorithm.HS256, SECRET_KEY).compact();
     }
     private String createToken(Map<String, Object> claims, String username, long expireTime) {

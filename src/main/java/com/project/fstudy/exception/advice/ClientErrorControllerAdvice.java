@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.fstudy.exception.DataConstraintViolationException;
 import com.project.fstudy.exception.InputConstraintViolationException;
+import com.project.fstudy.exception.InvalidAuthenticationPrincipalException;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -29,5 +30,11 @@ public class ClientErrorControllerAdvice {
         return exception.getMessage();
     }
 
+    @ResponseBody
+    @ExceptionHandler(InvalidAuthenticationPrincipalException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public String invalidAuthenticationPrincipalExceptionHandler(InvalidAuthenticationPrincipalException exception) {
+        return exception.getMessage();
+    }
 
 }
