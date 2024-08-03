@@ -2,6 +2,7 @@ package com.project.fstudy.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.project.fstudy.common.HasSecurity;
 import com.project.fstudy.data.constant.TimeConstant;
 import com.project.fstudy.data.dto.request.*;
 import com.project.fstudy.data.entity.*;
@@ -9,10 +10,7 @@ import com.project.fstudy.exception.*;
 import com.project.fstudy.repository.*;
 import com.project.fstudy.service.AccountManageService;
 import com.project.fstudy.service.AuthService;
-import com.project.fstudy.utils.EmailUtils;
-import com.project.fstudy.utils.JwtUtils;
-import com.project.fstudy.utils.PasswordUtils;
-import com.project.fstudy.utils.ValidationUtils;
+import com.project.fstudy.utils.*;
 import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,23 +19,22 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.sql.Timestamp;
 
 import java.time.Instant;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.Set;
+import java.util.*;
 
 
 @Slf4j
 @Service
-public class AccountServiceImpl implements AuthService, AccountManageService {
+public class AccountServiceImpl implements AuthService, AccountManageService, HasSecurity {
     @Autowired
     private AccountRepository accountRepository;
     @Autowired
@@ -56,7 +53,10 @@ public class AccountServiceImpl implements AuthService, AccountManageService {
     private EmailUtils emailUtils;
     @Autowired
     private VerifyAccountTokenRepository verifyAccountTokenRepository;
+    @Autowired
+    private GoogleUtils googleUtils;
     @Override
+
     public ResponseEntity<?> authenticate(UsernamePasswordAuthenticateRequestDto dto) {
         Authentication authentication = new UsernamePasswordAuthenticationToken(dto.getUsername(), dto.getPassword());
         authenticationManager.authenticate(authentication);
@@ -67,11 +67,47 @@ public class AccountServiceImpl implements AuthService, AccountManageService {
     }
 
     @Override
-    public ResponseEntity<?> googleAuthenticate(GoogleAuthenticateRequestDto dto) {
-        return null;
+    public ResponseEntity<?> googleAuthenticate(GoogleAuthenticateRequestDto dto) throws GeneralSecurityException, IOException {
+        Map<String, String> userInfo = googleUtils.getUserInfo(dto.getToken());
+        String token;
+        if (accountRepository.existsByUserEmail(userInfo.get("email"))) {
+            Account account = accountRepository.findByUserEmail(userInfo.get("email")).get();
+            token = jwtUtils.generateToken(account.getUsername());
+        } else {
+            Authority authority = authorityRepository.findById(2).orElseThrow(() -> {
+                log.error("authority USER1 is missing in database");
+                return new ServerUnhandledErrorException("Can't find user Authority");
+            });
+            String[] names = userInfo.get("name").split(" ");
+            User user = User.builder()
+                    .email(userInfo.get("email"))
+                    .firstName(names[0])
+                    .lastName(names[1])
+                    .build();
+
+            Account account = Account.builder()
+                    .username(userInfo.get("username"))
+                    .password(passwordEncoder.encode(UUID.randomUUID().toString()))
+                    .authorities(Set.of(authority))
+                    .user(user)
+                    .isEnabled(true)
+                    .isLocked(false)
+                    .credentialExpireTime(new Timestamp(System.currentTimeMillis() + TimeConstant.MONTH))
+                    .build();
+
+            try {
+                accountRepository.save(account);
+                token = jwtUtils.generateToken(account.getUsername());
+            } catch (Exception ex) {
+                log.error("Saving account exception: {}", ex.getMessage());
+                throw new ServerUnhandledErrorException(ex.getMessage());
+            }
+        }
+        return ResponseEntity.ok(token);
     }
 
     @Override
+    @Transactional
     public ResponseEntity<?> register(RegisterRequestDto dto) throws JsonProcessingException {
         List<String> violations = validationUtils.getViolationMessage(dto);
 
@@ -82,7 +118,7 @@ public class AccountServiceImpl implements AuthService, AccountManageService {
 
         Authority authority = authorityRepository.findById(2).orElseThrow(() -> {
             log.error("authority USER1 is missing in database");
-            return new NoSuchElementException();
+            return new ServerUnhandledErrorException("can't find user Authority");
         });
         User user = User.builder()
                 .email(dto.getEmail())
@@ -105,7 +141,7 @@ public class AccountServiceImpl implements AuthService, AccountManageService {
                     .build();
             verifyAccountTokenRepository.save(verifyAccountToken);
             String emailContent =
-                    "Verify at: http://localhost:8080/api/auth/verify-account/" + verifyAccountToken.getAccountId();
+                    "Verify at: http://localhost:8080/api/auth/verify-account/" + verifyAccountToken.getId();
             emailUtils.sendSimpleEmail(dto.getEmail(), "Verify account", emailContent);
             return ResponseEntity.noContent().build();
         } catch (DataIntegrityViolationException ex) {
@@ -121,8 +157,8 @@ public class AccountServiceImpl implements AuthService, AccountManageService {
             }
             throw new DataConstraintViolationException(message);
         } catch (Exception ex) {
-            log.error("Unhandled Exception: {}", ex.getMessage());
-            throw ex;
+            log.error("Saving account exception: {}", ex.getMessage());
+            throw new ServerUnhandledErrorException(ex.getMessage());
         }
 
     }
@@ -132,20 +168,20 @@ public class AccountServiceImpl implements AuthService, AccountManageService {
     public ResponseEntity<?> forgotPassword(ForgotPasswordRequestDto dto) {
         String otp = PasswordUtils.generatePassword();
         Account account = accountRepository.findByUserEmail(dto.getEmail())
-                .orElseThrow(() -> new PersistentDataNotFound("Can't find account that match for email"));
+                .orElseThrow(() -> new PersistentDataNotFoundException("Can't find account that match for email"));
         account.setPassword(passwordEncoder.encode(otp));
         account.setCredentialExpireTime(new Timestamp(System.currentTimeMillis() + TimeConstant.MINUTE * 10));
         try {
             accountRepository.save(account);
         } catch (Exception ex) {
-            log.error("Encounter a exception: {}", ex.getMessage());
-            throw ex;
+            log.error("Saving account exception: {}", ex.getMessage());
+            throw new ServerUnhandledErrorException(ex.getMessage());
         }
         try {
             emailUtils.sendSimpleEmail(dto.getEmail(), "Reset Password", "Your One time password: " + otp);
         } catch (Exception ex) {
-            log.error("error while sending email: {}", ex.getMessage());
-            throw ex;
+            log.error("Error while sending email: {}", ex.getMessage());
+            throw new ServerUnhandledErrorException(ex.getMessage());
         }
 
         return ResponseEntity.noContent().build();
@@ -162,15 +198,15 @@ public class AccountServiceImpl implements AuthService, AccountManageService {
                 .orElseThrow(InvalidAuthenticationPrincipalException::new);
 
         if (passwordEncoder.matches(dto.getOldPassword(), account.getPassword())) {
-            throw new DataValueConflictException("current password isn't match");
+            throw new DataValueConflictException("Current password isn't match");
         }
 
         account.setPassword(passwordEncoder.encode(dto.getNewPassword()));
         try {
             accountRepository.save(account);
         } catch (Exception ex) {
-            log.error("Encounter a exception: {}", ex.getMessage());
-            throw ex;
+            log.error("Saving account exception: {}", ex.getMessage());
+            throw new ServerUnhandledErrorException(ex.getMessage());
         }
         return ResponseEntity.noContent().build();
     }
@@ -182,7 +218,7 @@ public class AccountServiceImpl implements AuthService, AccountManageService {
             throw new InvalidAuthenticationPrincipalException();
         }
 
-        if (accountRepository.findByUsername(user.getUsername()).isEmpty()) {
+        if (accountRepository.existsByUsername(user.getUsername())) {
             throw new InvalidAuthenticationPrincipalException();
         }
 
@@ -191,9 +227,24 @@ public class AccountServiceImpl implements AuthService, AccountManageService {
     }
 
     @Override
-    public ResponseEntity<?> verifyAccount(String token) {
-        
-        return null;
+    @Transactional
+    public ResponseEntity<?> verifyAccount(String tokenId) {
+        VerifyAccountToken verifyAccountToken = verifyAccountTokenRepository.findById(tokenId)
+                .orElseThrow(() -> new PersistentDataNotFoundException("Can't find match verify token"));
+        Account account = accountRepository.findById(verifyAccountToken.getAccountId())
+                .orElseThrow(() -> new PersistentDataNotFoundException("Can't find account"));
+
+        account.setEnabled(true);
+        try {
+            accountRepository.save(account);
+            verifyAccountTokenRepository.delete(verifyAccountToken);
+            String token = jwtUtils.generateToken(account.getUsername());
+            return ResponseEntity.ok(token);
+        } catch (Exception ex) {
+            log.error("Saving account exception: {}", ex.getMessage());
+            throw new ServerUnhandledErrorException(ex.getMessage());
+        }
+
     }
 
     @Override

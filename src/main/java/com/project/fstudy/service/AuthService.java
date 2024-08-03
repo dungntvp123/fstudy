@@ -6,9 +6,12 @@ import com.project.fstudy.data.dto.request.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.userdetails.UserDetailsService;
 
-public interface AuthService extends UserDetailsService, HasSecurity {
+import java.io.IOException;
+import java.security.GeneralSecurityException;
+
+public interface AuthService extends UserDetailsService {
     public ResponseEntity<?> authenticate(UsernamePasswordAuthenticateRequestDto dto);
-    public ResponseEntity<?> googleAuthenticate(GoogleAuthenticateRequestDto dto);
+    public ResponseEntity<?> googleAuthenticate(GoogleAuthenticateRequestDto dto) throws GeneralSecurityException, IOException;
     public ResponseEntity<?> register(RegisterRequestDto dto) throws JsonProcessingException;
     public ResponseEntity<?> forgotPassword(ForgotPasswordRequestDto dto);
     public ResponseEntity<?> updatePassword(UpdatePasswordRequestDto dto);
