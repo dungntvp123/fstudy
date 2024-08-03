@@ -26,7 +26,7 @@ public class Account implements UserDetails {
     private int id;
     private String username;
     private String password;
-    @ManyToMany(cascade = CascadeType.ALL, fetch = FetchType.LAZY, targetEntity = Authority.class)
+    @ManyToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER, targetEntity = Authority.class)
     @JoinTable(
             joinColumns = @JoinColumn(referencedColumnName = "id"),
             inverseJoinColumns = @JoinColumn(referencedColumnName = "id")
@@ -44,7 +44,10 @@ public class Account implements UserDetails {
     public void onCreate() {
         createDate = LocalDate.now();
     }
-
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return authorities;
+    }
     @Override
     public boolean isAccountNonExpired() {
         return true;
