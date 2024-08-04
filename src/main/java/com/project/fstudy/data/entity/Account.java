@@ -1,5 +1,6 @@
 package com.project.fstudy.data.entity;
 
+import com.project.fstudy.data.constant.TimeConstant;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -33,7 +34,8 @@ public class Account implements UserDetails {
     )
     private Set<Authority> authorities = new HashSet<>();
     private boolean isLocked;
-    private Timestamp credentialExpireTime;
+    private Timestamp accountExpiredTime;
+    private Timestamp credentialExpiredTime;
     private boolean isEnabled;
     @OneToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @JoinColumn(referencedColumnName = "id")
@@ -50,7 +52,7 @@ public class Account implements UserDetails {
     }
     @Override
     public boolean isAccountNonExpired() {
-        return true;
+        return accountExpiredTime.before(new Timestamp(TimeConstant.NOW));
     }
 
     @Override
@@ -60,7 +62,7 @@ public class Account implements UserDetails {
 
     @Override
     public boolean isCredentialsNonExpired() {
-        return credentialExpireTime.after(new Timestamp(System.currentTimeMillis()));
+        return credentialExpiredTime.after(new Timestamp(TimeConstant.NOW));
     }
 
     @Override
