@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.fstudy.common.HasSecurity;
 import com.project.fstudy.data.constant.TimeConstant;
 import com.project.fstudy.data.dto.request.*;
+import com.project.fstudy.data.dto.request.criteria.AccountCriteria;
 import com.project.fstudy.data.entity.*;
 import com.project.fstudy.exception.*;
 import com.project.fstudy.repository.*;
@@ -90,9 +91,10 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
                     .password(passwordEncoder.encode(UUID.randomUUID().toString()))
                     .authorities(Set.of(authority))
                     .user(user)
+                    .accountExpiredTime(new Timestamp(TimeConstant.NOW -1))
                     .isEnabled(true)
                     .isLocked(false)
-                    .credentialExpireTime(new Timestamp(System.currentTimeMillis() + TimeConstant.MONTH))
+                    .credentialExpiredTime(new Timestamp(TimeConstant.NOW + TimeConstant.MONTH))
                     .build();
 
             try {
@@ -129,15 +131,16 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
                 .password(passwordEncoder.encode(dto.getPassword()))
                 .authorities(Set.of(authority))
                 .user(user)
+                .accountExpiredTime(new Timestamp(TimeConstant.NOW -1))
                 .isEnabled(false)
                 .isLocked(false)
-                .credentialExpireTime(new Timestamp(System.currentTimeMillis() + TimeConstant.MONTH))
+                .credentialExpiredTime(new Timestamp(TimeConstant.NOW + TimeConstant.MONTH))
                 .build();
         try {
             accountRepository.save(account);
             VerifyAccountToken verifyAccountToken = VerifyAccountToken.builder()
                     .accountId(account.getId())
-                    .expireTime(Instant.ofEpochMilli(System.currentTimeMillis() + TimeConstant.MINUTE * 10))
+                    .expireTime(Instant.ofEpochMilli(TimeConstant.NOW + TimeConstant.MINUTE * 10))
                     .build();
             verifyAccountTokenRepository.save(verifyAccountToken);
             String emailContent =
@@ -170,7 +173,7 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
         Account account = accountRepository.findByUserEmail(dto.getEmail())
                 .orElseThrow(() -> new PersistentDataNotFoundException("Can't find account that match for email"));
         account.setPassword(passwordEncoder.encode(otp));
-        account.setCredentialExpireTime(new Timestamp(System.currentTimeMillis() + TimeConstant.MINUTE * 10));
+        account.setCredentialExpiredTime(new Timestamp(TimeConstant.NOW + TimeConstant.MINUTE * 10));
         try {
             accountRepository.save(account);
         } catch (Exception ex) {
@@ -250,5 +253,26 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         return accountRepository.findByUsername(username).orElse(null);
+    }
+
+    @Override
+    public ResponseEntity<?> getAccount(AccountCriteria criteria) {
+
+        return null;
+    }
+
+    @Override
+    public ResponseEntity<?> getUserActionLog(Integer accountId) {
+        return null;
+    }
+
+    @Override
+    public ResponseEntity<?> adjustLockAccount(Integer accountId) {
+        return null;
+    }
+
+    @Override
+    public ResponseEntity<?> setExpireToAccount(Integer accountId, Integer type) {
+        return null;
     }
 }
