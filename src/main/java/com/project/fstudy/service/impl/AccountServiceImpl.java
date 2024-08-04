@@ -2,7 +2,9 @@ package com.project.fstudy.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.project.fstudy.common.HasSecurity;
+import com.project.fstudy.common.ant.LogExecutionTime;
+import com.project.fstudy.common.cls.BodyFormatter;
+import com.project.fstudy.common.itf.HasSecurity;
 import com.project.fstudy.data.constant.TimeConstant;
 import com.project.fstudy.data.dto.request.*;
 import com.project.fstudy.data.dto.request.criteria.AccountCriteria;
@@ -17,9 +19,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.authentication.*;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -57,14 +59,21 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
     @Autowired
     private GoogleUtils googleUtils;
     @Override
-
     public ResponseEntity<?> authenticate(UsernamePasswordAuthenticateRequestDto dto) {
         Authentication authentication = new UsernamePasswordAuthenticationToken(dto.getUsername(), dto.getPassword());
-        authenticationManager.authenticate(authentication);
-
+        try {
+            authenticationManager.authenticate(authentication);
+        } catch (AccountExpiredException ex) {
+            Timestamp expireTime = accountRepository.findAccountExpiredTimeByUsername(dto.getUsername()).get();
+            throw new AccountExpiredException(expireTime.toString());
+        }
+        catch (Exception ex) {
+            log.error("Authenticate error: {}", ex.getMessage());
+            throw ex;
+        }
 
         String token = jwtUtils.generateToken(dto.getUsername());
-        return ResponseEntity.ok(token);
+        return ResponseEntity.ok(BodyFormatter.format(token, null));
     }
 
     @Override
@@ -105,12 +114,13 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
                 throw new ServerUnhandledErrorException(ex.getMessage());
             }
         }
-        return ResponseEntity.ok(token);
+        return ResponseEntity.ok(BodyFormatter.format(token, null));
     }
 
     @Override
     @Transactional
     public ResponseEntity<?> register(RegisterRequestDto dto) throws JsonProcessingException {
+
         List<String> violations = validationUtils.getViolationMessage(dto);
 
         if (!violations.isEmpty()) {
@@ -226,7 +236,7 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
         }
 
         String token = jwtUtils.generateToken(user.getUsername());
-        return ResponseEntity.ok(token);
+        return ResponseEntity.ok(BodyFormatter.format(token, null));
     }
 
     @Override
@@ -242,7 +252,7 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
             accountRepository.save(account);
             verifyAccountTokenRepository.delete(verifyAccountToken);
             String token = jwtUtils.generateToken(account.getUsername());
-            return ResponseEntity.ok(token);
+            return ResponseEntity.ok(BodyFormatter.format(token, null));
         } catch (Exception ex) {
             log.error("Saving account exception: {}", ex.getMessage());
             throw new ServerUnhandledErrorException(ex.getMessage());
@@ -252,7 +262,7 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        return accountRepository.findByUsername(username).orElse(null);
+        return accountRepository.findByUsername(username).orElseThrow(() -> new UsernameNotFoundException(""));
     }
 
     @Override
