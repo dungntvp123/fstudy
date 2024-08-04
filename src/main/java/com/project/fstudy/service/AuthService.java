@@ -1,7 +1,6 @@
 package com.project.fstudy.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.project.fstudy.common.HasSecurity;
 import com.project.fstudy.data.dto.request.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.userdetails.UserDetailsService;

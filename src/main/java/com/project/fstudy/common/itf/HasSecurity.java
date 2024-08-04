@@ -1,4 +1,4 @@
-package com.project.fstudy.common;
+package com.project.fstudy.common.itf;
 
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;

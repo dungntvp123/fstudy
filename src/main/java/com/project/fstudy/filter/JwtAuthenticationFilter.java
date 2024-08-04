@@ -28,7 +28,6 @@ public class JwtAuthenticationFilter implements Filter {
         HttpServletResponse response = (HttpServletResponse) servletResponse;
 
         String jwt = request.getHeader(HttpHeaders.AUTHORIZATION);
-        log.info("jwt: {}", jwt);
         if (jwt == null || !jwt.startsWith("Bearer")) {
             filterChain.doFilter(request, response);
             return;
@@ -40,12 +39,9 @@ public class JwtAuthenticationFilter implements Filter {
             String username = jwtUtils.extractUsername(token);
             UserDetails user = accountRepository.findByUsername(username).get();
             if (!jwtUtils.validateToken(token, user) || !user.isEnabled()) {
-                log.info("Invalid token");
-
                 filterChain.doFilter(request, response);
                 return;
             }
-            log.info("Token accepted");
             Authentication authentication =
                     new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
 
