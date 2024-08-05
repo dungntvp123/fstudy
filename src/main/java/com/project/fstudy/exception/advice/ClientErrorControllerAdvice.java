@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.fstudy.exception.DataConstraintViolationException;
 import com.project.fstudy.exception.InputConstraintViolationException;
 import com.project.fstudy.exception.InvalidAuthenticationPrincipalException;
+import com.project.fstudy.exception.PersistentDataNotFound;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -37,4 +38,10 @@ public class ClientErrorControllerAdvice {
         return exception.getMessage();
     }
 
+    @ResponseBody
+    @ExceptionHandler(PersistentDataNotFound.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public String invalidPersistentDataNotFoundExceptionHandler(InvalidAuthenticationPrincipalException exception) {
+        return exception.getMessage();
+    }
 }
