@@ -18,10 +18,13 @@ import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.*;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -58,6 +61,9 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
     private VerifyAccountTokenRepository verifyAccountTokenRepository;
     @Autowired
     private GoogleUtils googleUtils;
+    @Autowired
+    private RawAccountRepository rawAccountRepository;
+
     @Override
     public ResponseEntity<?> authenticate(UsernamePasswordAuthenticateRequestDto dto) {
         Authentication authentication = new UsernamePasswordAuthenticationToken(dto.getUsername(), dto.getPassword());
@@ -66,8 +72,7 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
         } catch (AccountExpiredException ex) {
             Timestamp expireTime = accountRepository.findAccountExpiredTimeByUsername(dto.getUsername()).get();
             throw new AccountExpiredException(expireTime.toString());
-        }
-        catch (Exception ex) {
+        } catch (Exception ex) {
             log.error("Authenticate error: {}", ex.getMessage());
             throw ex;
         }
@@ -97,10 +102,11 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
 
             Account account = Account.builder()
                     .username(userInfo.get("username"))
+                    .email(userInfo.get("email"))
                     .password(passwordEncoder.encode(UUID.randomUUID().toString()))
                     .authorities(Set.of(authority))
                     .user(user)
-                    .accountExpiredTime(new Timestamp(TimeConstant.NOW -1))
+                    .accountExpiredTime(new Timestamp(TimeConstant.NOW - 1))
                     .isEnabled(true)
                     .isLocked(false)
                     .credentialExpiredTime(new Timestamp(TimeConstant.NOW + TimeConstant.MONTH))
@@ -118,7 +124,7 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
     }
 
     @Override
-    @Transactional
+    @LogExecutionTime
     public ResponseEntity<?> register(RegisterRequestDto dto) throws JsonProcessingException {
 
         List<String> violations = validationUtils.getViolationMessage(dto);
@@ -128,49 +134,41 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
             throw new InputConstraintViolationException(message);
         }
 
-        Authority authority = authorityRepository.findById(2).orElseThrow(() -> {
-            log.error("authority USER1 is missing in database");
-            return new ServerUnhandledErrorException("can't find user Authority");
-        });
-        User user = User.builder()
-                .email(dto.getEmail())
-                .firstName(dto.getUsername())
-                .build();
-        Account account = Account.builder()
-                .username(dto.getUsername())
-                .password(passwordEncoder.encode(dto.getPassword()))
-                .authorities(Set.of(authority))
-                .user(user)
-                .accountExpiredTime(new Timestamp(TimeConstant.NOW -1))
-                .isEnabled(false)
-                .isLocked(false)
-                .credentialExpiredTime(new Timestamp(TimeConstant.NOW + TimeConstant.MONTH))
-                .build();
         try {
-            accountRepository.save(account);
-            VerifyAccountToken verifyAccountToken = VerifyAccountToken.builder()
-                    .accountId(account.getId())
-                    .expireTime(Instant.ofEpochMilli(TimeConstant.NOW + TimeConstant.MINUTE * 10))
+            RawAccount rawAccount = RawAccount.builder()
+                    .email(dto.getEmail())
+                    .password(dto.getPassword())
+                    .username(dto.getUsername())
+                    .expiredTime(Instant.ofEpochMilli(TimeConstant.NOW + TimeConstant.MINUTE * 10))
                     .build();
-            verifyAccountTokenRepository.save(verifyAccountToken);
-            String emailContent =
-                    "Verify at: http://localhost:8080/api/auth/verify-account/" + verifyAccountToken.getId();
-            emailUtils.sendSimpleEmail(dto.getEmail(), "Verify account", emailContent);
-            return ResponseEntity.noContent().build();
-        } catch (DataIntegrityViolationException ex) {
-            String errorMessage = ex.getMostSpecificCause().getMessage();
-            log.info("message: {}", errorMessage);
-            String message = "";
-            if (errorMessage.contains("UK_email")) {
-                message = "Email must be unique";
-            } else if (errorMessage.contains("UK_username")) {
-                message = "Username must be unique";
-            } else {
-                message = "Data integrity violation";
+            rawAccountRepository.save(rawAccount);
+
+            try {
+                VerifyAccountToken verifyAccountToken = VerifyAccountToken.builder()
+                        .accountId(rawAccount.getId())
+                        .expiredTime(Instant.ofEpochMilli(TimeConstant.NOW + TimeConstant.MINUTE * 10))
+                        .build();
+                verifyAccountTokenRepository.save(verifyAccountToken);
+                String emailContent =
+                        "Verify at: http://localhost:8080/api/auth/verify-account/" + verifyAccountToken.getId();
+                emailUtils.sendSimpleEmail(dto.getEmail(), "Verify account", emailContent);
+                return ResponseEntity.noContent().build();
+            } catch (Exception ex) {
+                rawAccountRepository.delete(rawAccount);
+                log.error("Saving account verify token exception: {}", ex.getMessage());
+                throw new ServerUnhandledErrorException(ex.getMessage());
             }
-            throw new DataConstraintViolationException(message);
+        } catch (DuplicateKeyException ex) {
+
+            if (ex.getMessage().contains("username")) {
+                throw new DataConstraintViolationException("Username already exists");
+            } else if (ex.getMessage().contains("email")) {
+                throw new DataConstraintViolationException("Email already exists");
+            } else {
+                throw new DataConstraintViolationException("Data constraint violation");
+            }
         } catch (Exception ex) {
-            log.error("Saving account exception: {}", ex.getMessage());
+            log.error("Saving raw account exception: {}", ex.getMessage());
             throw new ServerUnhandledErrorException(ex.getMessage());
         }
 
@@ -241,18 +239,48 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
 
     @Override
     @Transactional
+    @LogExecutionTime
     public ResponseEntity<?> verifyAccount(String tokenId) {
-        VerifyAccountToken verifyAccountToken = verifyAccountTokenRepository.findById(tokenId)
-                .orElseThrow(() -> new PersistentDataNotFoundException("Can't find match verify token"));
-        Account account = accountRepository.findById(verifyAccountToken.getAccountId())
+        VerifyAccountToken verifyAccountToken = verifyAccountTokenRepository.findByIdAndExpiredTimeAfter(tokenId, Instant.now())
+                .orElseThrow(() -> new PersistentDataNotFoundException("Account verify token expired or not found"));
+        RawAccount rawAccount = rawAccountRepository.findById(verifyAccountToken.getAccountId())
                 .orElseThrow(() -> new PersistentDataNotFoundException("Can't find account"));
 
-        account.setEnabled(true);
+        Authority authority = authorityRepository.findById(2).orElseThrow(() -> {
+            log.error("authority USER1 is missing in database");
+            return new ServerUnhandledErrorException("can't find user Authority");
+        });
+        User user = User.builder()
+                .email(rawAccount.getEmail())
+                .firstName(rawAccount.getUsername())
+                .build();
+        Account account = Account.builder()
+                .username(rawAccount.getUsername())
+                .email(rawAccount.getEmail())
+                .password(passwordEncoder.encode(rawAccount.getPassword()))
+                .authorities(Set.of(authority))
+                .user(user)
+                .accountExpiredTime(new Timestamp(TimeConstant.NOW -1))
+                .isEnabled(true)
+                .isLocked(false)
+                .credentialExpiredTime(new Timestamp(TimeConstant.NOW + TimeConstant.MONTH))
+                .build();
         try {
             accountRepository.save(account);
-            verifyAccountTokenRepository.delete(verifyAccountToken);
             String token = jwtUtils.generateToken(account.getUsername());
             return ResponseEntity.ok(BodyFormatter.format(token, null));
+        } catch (DataIntegrityViolationException ex) {
+            String errorMessage = ex.getMostSpecificCause().getMessage();
+            log.info("message: {}", errorMessage);
+            String message = "";
+            if (errorMessage.contains("UK_email")) {
+                message = "Email must be unique";
+            } else if (errorMessage.contains("UK_username")) {
+                message = "Username must be unique";
+            } else {
+                message = "Data integrity violation";
+            }
+            throw new DataConstraintViolationException(message);
         } catch (Exception ex) {
             log.error("Saving account exception: {}", ex.getMessage());
             throw new ServerUnhandledErrorException(ex.getMessage());
@@ -267,22 +295,62 @@ public class AccountServiceImpl implements AuthService, AccountManageService, Ha
 
     @Override
     public ResponseEntity<?> getAccount(AccountCriteria criteria) {
+        Specification<Account> specification = hasAccountExpired(criteria.getIsLocked())
+                .and(hasEmailLike(criteria.getSearchKey()).or(hasUsernameLike(criteria.getSearchKey())))
+                .and(hasLocked(criteria.getIsLocked()));
+        PageRequest pageRequest = (criteria.getSortField() != null ?
+                inOrder(!criteria.isDescend(), criteria.getSortField(), criteria.getPageIndex()) :
+                inDefault(criteria.getPageIndex()));
 
-        return null;
+        Page<Account> accountPage = accountRepository.findAll(specification, pageRequest);
+
+        return ResponseEntity.ok(BodyFormatter.format(accountPage, null));
     }
 
     @Override
-    public ResponseEntity<?> getUserActionLog(Integer accountId) {
+    public ResponseEntity<?> getUserActionLog() {
         return null;
     }
 
     @Override
     public ResponseEntity<?> adjustLockAccount(Integer accountId) {
-        return null;
+        Account account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new PersistentDataNotFoundException("Can't find account"));
+
+        account.setLocked(!account.isLocked());
+        try {
+            accountRepository.save(account);
+        } catch (Exception ex) {
+            log.error("Saving account exception: {}", ex.getMessage());
+            throw new ServerUnhandledErrorException(ex.getMessage());
+        }
+        return ResponseEntity.noContent().build();
     }
 
     @Override
     public ResponseEntity<?> setExpireToAccount(Integer accountId, Integer type) {
-        return null;
+        Account account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new PersistentDataNotFoundException("Can't find account"));
+
+        switch (type) {
+            case 0 -> account.setAccountExpiredTime(new Timestamp(TimeConstant.NOW - 1));
+            case 1 -> account.setAccountExpiredTime(new Timestamp(TimeConstant.NOW + TimeConstant.DAY));
+            case 2 -> account.setAccountExpiredTime(new Timestamp(TimeConstant.NOW + 3 * TimeConstant.DAY));
+            case 3 -> account.setAccountExpiredTime(new Timestamp(TimeConstant.NOW + TimeConstant.WEEK));
+            case 4 -> account.setAccountExpiredTime(new Timestamp(TimeConstant.NOW + TimeConstant.MONTH));
+            default -> {
+                log.warn("type not exist: {}", type);
+                throw new InputConstraintViolationException("there is no type of " + type);
+            }
+        }
+
+        try {
+            accountRepository.save(account);
+        } catch (Exception ex) {
+            log.error("Saving account exception: {}", ex.getMessage());
+            throw new ServerUnhandledErrorException(ex.getMessage());
+        }
+
+        return ResponseEntity.noContent().build();
     }
 }

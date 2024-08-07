@@ -1,5 +1,6 @@
 package com.project.fstudy.data.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.project.fstudy.data.constant.TimeConstant;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -15,7 +16,8 @@ import java.util.*;
 
 @Entity
 @Table(uniqueConstraints = {
-        @UniqueConstraint(columnNames = "username", name = "UK_username")
+        @UniqueConstraint(columnNames = "username", name = "UK_username"),
+        @UniqueConstraint(columnNames = "email", name = "UK_email")
 })
 @Data
 @NoArgsConstructor
@@ -26,7 +28,9 @@ public class Account implements UserDetails {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
     private String username;
+    private String email;
     private String password;
+    @JsonIgnore
     @ManyToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER, targetEntity = Authority.class)
     @JoinTable(
             joinColumns = @JoinColumn(referencedColumnName = "id"),
@@ -37,6 +41,7 @@ public class Account implements UserDetails {
     private Timestamp accountExpiredTime;
     private Timestamp credentialExpiredTime;
     private boolean isEnabled;
+    @JsonIgnore
     @OneToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @JoinColumn(referencedColumnName = "id")
     private User user;

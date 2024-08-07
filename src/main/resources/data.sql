@@ -1,3 +1,13 @@
-INSERT INTO authority (name) VALUES ('ADMIN');
-INSERT INTO authority (name) VALUES ('USER1');
-INSERT INTO authority (name) VALUES ('USER2');
+
+INSERT INTO authority (name)
+SELECT 'ADMIN'
+WHERE NOT EXISTS (SELECT 1 FROM authority WHERE name = 'ADMIN');
+
+INSERT INTO authority (name)
+SELECT 'USER1'
+WHERE NOT EXISTS (SELECT 1 FROM authority WHERE name = 'USER1');
+
+INSERT INTO authority (name)
+SELECT 'USER2'
+WHERE NOT EXISTS (SELECT 1 FROM authority WHERE name = 'USER2');
+

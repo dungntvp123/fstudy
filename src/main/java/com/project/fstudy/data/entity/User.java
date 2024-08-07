@@ -10,9 +10,6 @@ import java.time.LocalDate;
 import java.util.Date;
 
 @Entity
-@Table(uniqueConstraints = {
-        @UniqueConstraint(columnNames = "email", name = "UK_email")
-})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
