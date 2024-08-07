@@ -7,19 +7,25 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
 
-@Document(collection = "verify_account_token")
+@Document(collection = "raw_accounts")
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-public class VerifyAccountToken {
+public class RawAccount {
     @Id
     private String id;
-    private String accountId;
+    @Indexed(unique = true)
+    private String username;
+    private String password;
+    @Indexed(unique = true)
+    private String email;
     private Instant expiredTime;
+
 
 }
